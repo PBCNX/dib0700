@@ -1,0 +1,195 @@
+// The DIB0700 Java driver as one versioned library: the pure-Java core (java/src/main/java), the
+// Android adapter and the tuner-contract classes (java/android/src/main/java/com/pbcnx/drivers/dib0700/driver)
+// compile into a single JAR, published as com.pbcnx.drivers:dib0700:<version>. android.jar and the
+// vendored com.pbcnx.tuner interface (:contract) are compileOnly, so the host supplies both at run
+// time and the POM stays dependency-free.
+//
+// Version 0.3.0 is the first release. Bump it only from the owner's word.
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'com.pbcnx.drivers'
+version = '0.3.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+
+base {
+    // com.pbcnx.drivers:dib0700:0.3.0 -> build/libs/dib0700-0.3.0.jar
+    archivesName = 'dib0700'
+}
+
+// ---------------------------------------------------------------------------------------------
+// android.jar: the adapter is compiled against it, never packaged. Resolution order:
+//   -Pandroid.jar=<absolute path>  >  java/local.properties (sdk.dir)  >  ANDROID_HOME  >
+//   ANDROID_SDK_ROOT. Highest platforms/android-* wins, like java/build.ps1 -Android.
+// ---------------------------------------------------------------------------------------------
+def androidJar = {
+    def override = project.findProperty('android.jar')
+    if (override) {
+        def f = file(override)
+        return f.isFile() ? f : null
+    }
+    def sdk = null
+    def localProps = file("$projectDir/local.properties")
+    if (localProps.isFile()) {
+        def props = new Properties()
+        localProps.withInputStream { props.load(it) }
+        sdk = props.getProperty('sdk.dir')
+    }
+    if (!sdk) sdk = System.getenv('ANDROID_HOME')
+    if (!sdk) sdk = System.getenv('ANDROID_SDK_ROOT')
+    if (!sdk) return null
+    def platforms = file("$sdk/platforms")
+    if (!platforms.isDirectory()) return null
+    def candidates = platforms.listFiles()
+            .findAll { it.isDirectory() }
+            .sort { it.name }
+            .reverse()
+            .collect { new File(it, 'android.jar') }
+            .findAll { it.isFile() }
+    return candidates.isEmpty() ? null : candidates.first()
+}()
+
+// The adapter sources are their own source set: the pure-Java core stays buildable with no SDK,
+// and the JAR adds the adapter's classes. android.jar is compileOnly (provided by the host).
+// The two test source sets exist only in the development tree; without their folders the library
+// still builds, which is the shape the published tree ships.
+def hasCoreTests = file("$projectDir/src/test/java").isDirectory()
+def hasDoorTests = file("$projectDir/src/doorTest/java").isDirectory()
+
+sourceSets {
+    androidAdapter {
+        java.srcDir "$projectDir/android/src/main/java"
+        compileClasspath += sourceSets.main.output + files(androidJar)
+    }
+    if (hasDoorTests) {
+        // The contract self-test: com.pbcnx.drivers.dib0700.driver.Dib0700Provider/Dib0700Tuner over a
+        // fake Transport. It is its own source set so the core self-test (java/src/test) still compiles
+        // and runs with no Android SDK: only this one needs android.jar and the vendored :contract.
+        doorTest {
+            java.srcDir "$projectDir/src/doorTest/java"
+            // The fake Transport lives in SelfTest (java/src/test), so the test compiles against that
+            // source set's output; that source set itself stays SDK-free.
+            def doorClasspath = sourceSets.main.output + sourceSets.test.output +
+                    sourceSets.androidAdapter.output + files(androidJar)
+            compileClasspath += doorClasspath
+            runtimeClasspath += doorClasspath
+        }
+    }
+}
+
+dependencies {
+    // Compile-only both ways: the jar carries the provider/tuner classes, never com.pbcnx.tuner.
+    androidAdapterCompileOnly project(':contract')
+    if (hasDoorTests) {
+        doorTestImplementation project(':contract')
+    }
+}
+
+tasks.named('compileAndroidAdapterJava') {
+    doFirst {
+        if (androidJar == null) {
+            throw new GradleException(
+                    'android.jar not found: pass -Pandroid.jar=<path>, or set sdk.dir in ' +
+                    'java/local.properties, or ANDROID_HOME. The published JAR carries the ' +
+                    'Android adapter, so its compile needs the platform jar.')
+        }
+        logger.lifecycle("android adapter compiles against ${androidJar}")
+    }
+    options.encoding = 'UTF-8'
+}
+
+// One artifact: core classes + adapter classes.
+tasks.named('jar') {
+    dependsOn tasks.named('compileAndroidAdapterJava')
+    from sourceSets.androidAdapter.output
+}
+
+// The sources JAR carries both trees too (the host's "vendor the sources" route). The session
+// JSONs are a generated resource of the main source set, so the sources JAR declares the copy.
+tasks.named('sourcesJar') {
+    from sourceSets.androidAdapter.allSource
+    dependsOn 'sessionResources'
+}
+
+// The captured sessions are the Python package's dib0700/resources/: one copy in git, copied onto the
+// classpath as dib0700/session-<khz>.json so Sessions.fromClasspath() finds them in a JAR or AAR.
+def sessionResources = tasks.register('sessionResources', Copy) {
+    from("$projectDir/../dib0700/resources") {
+        include 'session-*.json'
+    }
+    into layout.buildDirectory.dir('generated-resources/dib0700')
+}
+sourceSets.main.resources.srcDir(layout.buildDirectory.dir('generated-resources'))
+tasks.named('processResources') {
+    dependsOn sessionResources
+}
+
+// JVM self-test: no device. The firmware check is skipped when vendor/firmware is absent.
+if (hasCoreTests) {
+    tasks.register('selfTest', JavaExec) {
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = 'com.pbcnx.drivers.dib0700.SelfTest'
+        def firmware = file("$projectDir/../vendor/firmware/dvb-usb-dib0700-1.20.fw")
+        if (firmware.isFile()) systemProperty 'dib0700.firmware', firmware.absolutePath
+    }
+    tasks.named('check') {
+        dependsOn 'selfTest'
+    }
+}
+
+// The contract self-test (parity shape): provider opens from a fake Transport, the Tuner maps the 479
+// TMCC canonically and follows the contract's error rules. Needs android.jar and :contract.
+if (hasDoorTests) {
+    tasks.register('doorTest', JavaExec) {
+        dependsOn tasks.named('doorTestClasses'), tasks.named('compileAndroidAdapterJava'),
+                tasks.named('testClasses'), tasks.named('processResources')
+        classpath = sourceSets.doorTest.runtimeClasspath
+        mainClass = 'com.pbcnx.drivers.dib0700.DoorSelfTest'
+    }
+    tasks.named('check') {
+        dependsOn 'doorTest'
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Publishing: a local Maven repository inside the build tree (gitignored), so a host can consume
+// the package without a network and without a copy of the driver source:
+//
+//   repositories { maven { url = uri("java/build/local-repo") } }
+//   dependencies { implementation("com.pbcnx.drivers:dib0700:0.3.0") }
+//
+// `publishToMavenLocal` (the standard task) additionally installs to ~/.m2 for a mavenLocal() host;
+// it is not part of `publish`.
+// ---------------------------------------------------------------------------------------------
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            artifactId = 'dib0700'
+            pom {
+                name = 'DIB0700 (DiBcom STK8096GP) ISDB-T driver'
+                description = 'Java core and Android USB adapter for the DiBcom STK8096GP ' +
+                        '(10b8:1fa0) ISDB-T receiver: cold start, tune, stream, TMCC, scan, zap.'
+                licenses {
+                    license {
+                        name = 'GPL-2.0-or-later'
+                        url = 'https://spdx.org/licenses/GPL-2.0-or-later.html'
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'localRepo'
+            url = uri(layout.buildDirectory.dir('local-repo'))
+        }
+    }
+}

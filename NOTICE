@@ -1,0 +1,30 @@
+# NOTICE — what is not ours
+
+This tree is the DIB0700 user-space driver for the ISDB-T dongle sold as the **Geniatech MyGica
+S870** (DiBcom DIB0700, `10b8:1fa0`). Its own code is **GPL-2.0-or-later** (see `LICENSE`).
+Copyright (c) 2026 The DIB0700 Open Driver Authors.
+
+## 1. Vendor firmware — not covered by this license
+
+`dvb-usb-dib0700-1.20.fw` (33,768 bytes) is vendor material. It is not original work and is not
+licensed by this project. It is **not distributed in this repository**: supply it yourself, and the
+driver checks every record's checksum before it sends it. Without the image a cold device cannot be
+started; `--version` and `list` do not need it.
+
+## 2. Runtime libraries
+
+The Python driver needs `pyusb` (BSD-3-Clause), which `pip` installs with the package. On Windows it
+also loads `libusb-1.0.dll` (LGPL-2.1-or-later), which you install yourself from
+<https://libusb.info> — no DLL is bundled with this driver. `DIB0700_LIBUSB` can point at it.
+
+## 3. The tuner contract
+
+`java/contract` carries the `com.pbcnx.tuner` interface (TUNER-CONTRACT 2.0.0): the contract this
+package implements and does not bundle. It is this project's own source, not third-party code.
+
+## 4. Provenance marker
+
+`dib0700-pbcnx` is a visible provenance/attribution string in the Python and Java metadata
+(`--version`, `Dib0700.PROVENANCE`). It makes the origin searchable. It is **not** telemetry: it
+performs no network or device I/O, carries no user or device identifier, and changes no protocol
+bytes.

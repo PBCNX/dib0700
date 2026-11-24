@@ -1,0 +1,38 @@
+// The DIB0700 driver as a library: the root project is the pure-Java core (java/src/main/java),
+// the :android module is the UsbDeviceConnection adapter. GPL-2.0-or-later (see the repository
+// LICENSE). A host that prefers the copy route copies java/src/main/java and java/android/src
+// instead of depending on the AAR; both are supported, the code is identical.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    resolutionStrategy {
+        // The Android plugin marker is a POM that only points at the AGP module. An offline build
+        // that already has AGP cached can be missing the marker; resolve the module directly.
+        // Same plugin id, same version.
+        eachPlugin {
+            if (requested.id.id == 'com.android.library'
+                    || requested.id.id == 'com.android.application') {
+                useModule("com.android.tools.build:gradle:${requested.version}")
+            }
+        }
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'dib0700-driver'
+// The tuner contract (com.pbcnx.tuner), vendored for compileOnly: the package compiles against its
+// signatures and does NOT bundle its classes.
+include ':contract'
+include ':android'
+// The demo app is development material and is not part of the published tree; include it only when
+// the folder is present.
+if (file('demo').isDirectory()) {
+    include ':demo'
+}

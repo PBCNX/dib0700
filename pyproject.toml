@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dib0700"
+version = "0.3.0"
+description = "User-space driver for the Geniatech MyGica S870 (DiBcom DIB0700) ISDB-T USB tuner"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-2.0-or-later" }
+dependencies = ["pyusb>=1.2"]
+
+[project.scripts]
+dib0700 = "dib0700.__main__:main"
+
+[tool.setuptools]
+packages = ["dib0700"]
+
+[tool.setuptools.package-data]
+dib0700 = ["resources/*.json"]

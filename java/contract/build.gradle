@@ -1,0 +1,66 @@
+// The tuner contract, vendored for compileOnly use by this package.
+//
+// com.pbcnx.tuner (TUNER-CONTRACT 1.4): these seven interface sources are a draft of the contract,
+// copied here so this package compiles against its exact signatures. The package is compiled
+// against them and does NOT bundle them: the contract module's classes never enter
+// dib0700-<version>.jar (only the root project's two source sets do). A host app supplies its own
+// interface artefact; nothing here is upstream of the contract.
+//
+// Tuner and TunerProvider name android.content.Context and android.hardware.usb.UsbDevice, so the
+// interface compiles against android.jar (compileOnly, provided by the host at run time).
+plugins {
+    id 'java-library'
+}
+
+group = 'com.pbcnx.tuner'
+version = '2.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Same android.jar discovery order as the root project: -Pandroid.jar > java/local.properties
+// sdk.dir > ANDROID_HOME > ANDROID_SDK_ROOT; highest platforms/android-* wins.
+def androidJar = {
+    def override = project.findProperty('android.jar')
+    if (override) {
+        def f = file(override)
+        return f.isFile() ? f : null
+    }
+    def sdk = null
+    def localProps = rootProject.file('local.properties')
+    if (localProps.isFile()) {
+        def props = new Properties()
+        localProps.withInputStream { props.load(it) }
+        sdk = props.getProperty('sdk.dir')
+    }
+    if (!sdk) sdk = System.getenv('ANDROID_HOME')
+    if (!sdk) sdk = System.getenv('ANDROID_SDK_ROOT')
+    if (!sdk) return null
+    def platforms = file("$sdk/platforms")
+    if (!platforms.isDirectory()) return null
+    def candidates = platforms.listFiles()
+            .findAll { it.isDirectory() }
+            .sort { it.name }
+            .reverse()
+            .collect { new File(it, 'android.jar') }
+            .findAll { it.isFile() }
+    return candidates.isEmpty() ? null : candidates.first()
+}()
+
+dependencies {
+    if (androidJar != null) compileOnly files(androidJar)
+}
+
+tasks.named('compileJava') {
+    doFirst {
+        if (androidJar == null) {
+            throw new GradleException(
+                    'android.jar not found for :contract: pass -Pandroid.jar=<path>, or set sdk.dir ' +
+                    'in java/local.properties, or ANDROID_HOME. Tuner/TunerProvider name UsbDevice.')
+        }
+        logger.lifecycle("contract compiles against ${androidJar}")
+    }
+    options.encoding = 'UTF-8'
+}

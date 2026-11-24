@@ -1,0 +1,25 @@
+// Android adapter: UsbDeviceConnection as a Transport, plus the Dib0700Android entry point.
+// GPL-2.0-or-later. The host either depends on this module's AAR or copies
+// java/android/src/main/java and java/src/main/java into its tree (the 9308 route).
+// The adapter imports no host class, and the core imports no Android class.
+plugins {
+    id 'com.android.library' version '8.7.3'
+}
+
+android {
+    namespace 'com.pbcnx.drivers.dib0700.android'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    api project(':')
+}
